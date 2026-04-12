@@ -23,13 +23,11 @@ class BBox3DDataset(Dataset):
         sample_paths: list,
         augment: bool = False,
         N: int = 1024,
-        use_rgb: bool = False,
         cache_dir: str = "data_cache",
         canonical_frame: str = "pca",
     ):
         self.augment = augment
         self.N = N
-        self.use_rgb = use_rgb
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(exist_ok=True)
         self.canonical_frame = canonical_frame
@@ -112,10 +110,9 @@ class BBox3DDataset(Dataset):
                 pts, cols, frame_rotation, gt_rotation, gt_translation
             )
 
-        points = torch.cat([pts, cols], dim=1) if self.use_rgb else pts  # (N, 3 or 6)
 
         return dict(
-            points=points,
+            points=pts,
             colors=cols,
             gt_lwh=gt_lwh,  # (3,)  GT box dimensions
             gt_rotation=gt_rotation,  # (3,3) GT box axes in canonical frame
@@ -134,11 +131,10 @@ def get_dataloader(
     shuffle: bool = False,
     batch_size: int = 32,
     num_workers: int = 4,
-    canonical_frame: str = "pca",
     **kwargs,
 ) -> DataLoader:
     ds = BBox3DDataset(
-        sample_paths, augment=augment, canonical_frame=canonical_frame, **kwargs
+        sample_paths, augment=augment, **kwargs
     )
     return DataLoader(
         ds,
@@ -153,11 +149,12 @@ if __name__ == "__main__":
     splits = get_splits("dataset")
     loader = get_dataloader(
         splits["train"][:10],
-        augment=True,
-        shuffle=True,
+        augment=False,
+        shuffle=False,
         batch_size=4,
         num_workers=0,
-        canonical_frame="obb",
+        N=1024,
+        canonical_frame="pca",
     )
 
     batch = next(iter(loader))
