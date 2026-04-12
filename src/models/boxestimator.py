@@ -9,7 +9,7 @@ class BoxEstimationNet(nn.Module):
 
     def __init__(self, in_channels: int = 3):
         super().__init__()
-
+        self.in_channels = in_channels
         # pointnet shared mlp
         self.point_mlp = nn.Sequential(
             nn.Conv1d(in_channels, 64, 1),
@@ -42,8 +42,8 @@ class BoxEstimationNet(nn.Module):
         self.head_rotation    = nn.Linear(64, 6)   
         self.head_lwh         = nn.Linear(64, 3)   
 
-    def forward(self, pts: torch.Tensor):
-        x = pts.transpose(1, 2)              # (B, C, N)
+    def forward(self, pc: torch.Tensor):
+        x = pc.transpose(1, 2)              # (B, C, N)
         x = self.point_mlp(x)               
 
         # maxpool for single descriptor representing the pointcloud
@@ -55,7 +55,7 @@ class BoxEstimationNet(nn.Module):
         delta_r   = self.head_rotation(x)      # (B, 6)
         delta_lwh = self.head_lwh(x)           # (B, 3)
 
-        return delta_t, delta_r, delta_lwh
+        return delta_lwh, delta_r, delta_t # delta_r is pred_r in canonical frame same with translation
     
 if __name__ == "__main__":
     points = torch.randn(size=(2, 1024, 6), dtype=torch.float32)
