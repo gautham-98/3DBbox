@@ -94,14 +94,20 @@ def main():
     # training
     print("\n=== STARTING TRAINING ===")
     run_name = f"train_N{N}_frame{FRAME}_ep{EPOCHS}_btc{BATCH_SZ}"
-
+    ckpt_dir = f"ckpt_N{N}_F{FRAME}_EP{EPOCHS}_B{BATCH_SZ}"
     trainer = Trainer(
-        model, trainloader, valloader, loss_lambda, epochs=EPOCHS, run_name=run_name
+        model,
+        trainloader,
+        valloader,
+        loss_lambda,
+        epochs=EPOCHS,
+        run_name=run_name,
+        ckpt_dir=ckpt_dir,
     )
     trainer.train()
 
     # evaluation
-    CKPT_PATH = "./checkpoints/checkpoint_epoch_best.pth"
+    CKPT_PATH = ckpt_dir + "checkpoint_epoch_best.pth"
 
     print("\n=== STARTING EVALUATION ===")
     print(f"Checkpoint: {CKPT_PATH}")
