@@ -7,7 +7,7 @@ from src.eval.evaluator import Evaluator
 
 
 # training parameters
-EPOCHS = 2
+EPOCHS = 100
 BATCH_SZ = 32 
 
 # data parameters
@@ -18,7 +18,7 @@ N = 1024 # number of points in pointcloud after resampling
 # prepare dataloaders
 split_paths = get_splits(data_dir="dataset")
 trainloader = get_dataloader(
-    split_paths["train"][:10],
+    split_paths["train"],
     augment=True,
     shuffle=True,
     batch_size=BATCH_SZ,
@@ -49,7 +49,7 @@ testloader = get_dataloader(
 
 
 # loss weighing 
-loss_lambda = LossLambda(corner=3.5, lwh=2, rot=3.5, tr=1)
+loss_lambda = LossLambda(corner=2, lwh=3, rot=4, tr=1)
 
 # model
 model = BoxEstimationNet(in_channels=6)
