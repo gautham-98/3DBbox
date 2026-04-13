@@ -250,7 +250,13 @@ def augment(
         gt_translation = gt_translation @ R_z.T
 
     # point jitter
-    pts = pts + torch.randn_like(pts) * 0.002
+    N = pts.shape[0]
+    ratio = 0.3
+
+    mask = torch.rand(N) < ratio  
+    noise = torch.randn_like(pts) * 0.002
+
+    pts[mask] += noise[mask]
 
     # color jitter
     cols = cols + torch.randn_like(cols) * 0.02
