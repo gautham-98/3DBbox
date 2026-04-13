@@ -22,7 +22,7 @@ def reconstruct_bbox(lwh: torch.Tensor, rot: torch.Tensor, tr: torch.Tensor):
     """
     Reconstruct box from lwh, rotation, and translation
     """
-    bbox = (BBOX3D_CORNERS[None, ...] * lwh[:, None, :]) @ rot.transpose(-1, -2) + tr[:, None, :]
+    bbox = (BBOX3D_CORNERS[None, ...].to(lwh.device) * lwh[:, None, :]) @ rot.transpose(-1, -2) + tr[:, None, :]
     return bbox  # (B,8,3)
 
 
