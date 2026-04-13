@@ -7,23 +7,26 @@ class BoxEstimationNet(nn.Module):
     output: lwh, translation and rotation residuals in canonical frame
     """
 
-    def __init__(self, in_channels: int = 3):
+    def __init__(self, in_channels: int = 3, dropout: float = 0.3):
         super().__init__()
         self.in_channels = in_channels
+        self.dropout = dropout
         # pointnet shared mlp
         self.point_mlp = nn.Sequential(
             nn.Conv1d(in_channels, 64, 1),
             nn.BatchNorm1d(64),
             nn.ReLU(),
-
+            nn.Dropout(dropout),
 
             nn.Conv1d(64, 128, 1),
             nn.BatchNorm1d(128),
             nn.ReLU(),
+            nn.Dropout(dropout),
 
             nn.Conv1d(128, 256, 1),
             nn.BatchNorm1d(256),
             nn.ReLU(),
+            nn.Dropout(dropout),
         )
 
         # fully connected 
@@ -31,16 +34,38 @@ class BoxEstimationNet(nn.Module):
             nn.Linear(256, 128),   
             nn.BatchNorm1d(128),
             nn.ReLU(),
+            nn.Dropout(dropout),
 
             nn.Linear(128, 64),
             nn.BatchNorm1d(64),
-            nn.ReLU()
+            nn.ReLU(),
+            nn.Dropout(dropout),
         )
 
         # regression head
-        self.head_translation = nn.Linear(64, 3)   
-        self.head_rotation    = nn.Linear(64, 6)   
-        self.head_lwh         = nn.Linear(64, 3)   
+        self.head_translation = nn.Linear(64, 3)
+        self.head_rotation    = nn.Sequential(
+            nn.Linear(64, 32),   
+            nn.BatchNorm1d(32),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+
+            nn.Linear(32, 6),
+        )   
+        self.head_lwh         = nn.Sequential(
+            nn.Linear(64, 32),   
+            nn.BatchNorm1d(32),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+
+            nn.Linear(32, 16),
+            nn.BatchNorm1d(16),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+
+            nn.Linear(16, 3),
+            nn.ReLU(),
+        )  
 
     def forward(self, pc: torch.Tensor):
         x = pc.transpose(1, 2)              # (B, C, N)
