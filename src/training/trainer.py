@@ -8,8 +8,9 @@ import datetime
 
 from src.models.boxestimator import BoxEstimationNet
 from .losses import loss_lwh, loss_rot, loss_tr, loss_corners, LossLambda
-from .box_utils import get_delta_lwh, reconstruct_bbox
-from .rot_utils import rot6d_to_rotmat, rotmat_to_rot6d
+from src.utils.box_utils import get_delta_lwh, reconstruct_bbox
+from src.utils.rot_utils import rot6d_to_rotmat
+from src.eval.metrics import iou3d
 
 # at beginning of the script
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -27,7 +28,7 @@ class Trainer:
         weight_decay: float = 0.2,
         betas: list[float, float] = [0.9, 0.999],
         gamma: float = 2.0,
-        eval_interval: int = 5,
+        ckpt_interval: int = 5,
         ckpt_dir: str = "./checkpoints",
         run_name: str = "training",
     ):
@@ -38,7 +39,7 @@ class Trainer:
         self.optimizer = self.get_optimizer(learning_rate, weight_decay, betas)
         self.loss_lambda: LossLambda = loss_lambda
 
-        self.eval_interval = eval_interval
+        self.ckpt_interval = ckpt_interval
         self.ckpt_dir = ckpt_dir
         os.makedirs(self.ckpt_dir, exist_ok=True)
 
@@ -56,16 +57,18 @@ class Trainer:
 
     def train(self):
         training_step = 0
+        best_iou = 0
         for epoch in tqdm(range(self.epochs), desc="epochs", position=0):
             # Training
             self.model.train()
 
             epoch_loss = dict(
-                total_loss=0,
-                lwh_loss=0,
-                rot_loss=0,
-                tr_loss=0,
-                corner_loss=0,
+                train_total_loss=0,
+                train_lwh_loss=0,
+                train_rot_loss=0,
+                train_tr_loss=0,
+                train_corner_loss=0,
+                train_iou_metric=0,
                 epoch=epoch,
             )
             for batch in tqdm(
@@ -79,12 +82,13 @@ class Trainer:
 
                 # accumulate losses for every epoch
                 for k, v in loss_dict.items():
-                    epoch_loss[k] += v.item()
+                    epoch_loss["train_"+k] += v.item() if isinstance(v, torch.Tensor) else v
 
                 # step losses
                 step_loss = dict()
                 for k, v in loss_dict.items():
-                    step_loss[k] = v.item()
+                    step_loss[k] = v.item() if isinstance(v, torch.Tensor) else v
+
                 loss_dict["epoch"] = epoch
                 loss_dict["step"] = training_step
 
@@ -96,44 +100,57 @@ class Trainer:
             # epoch loss averaging across batch
             trainloader_len = len(self.trainloader)
             for k, v in epoch_loss.items():
-                epoch_loss[k] /= trainloader_len
+                if k != "epoch":
+                    epoch_loss[k] /= trainloader_len
             # log
             wandb.log(epoch_loss)
 
             # Validation
-            if epoch % self.eval_interval == 0:
-                self.model.eval()
-                val_loss = dict(
-                    total_loss=0,
-                    lwh_loss=0,
-                    rot_loss=0,
-                    tr_loss=0,
-                    corner_loss=0,
-                    epoch=epoch,
-                )
-                with torch.no_grad():
-                    for batch in tqdm(
-                        self.valloader, desc="validating", position=2, leave=False
-                    ):
-                        loss_dict = self._step(batch)
-                        # accumulate losses
-                        for k, v in loss_dict.items():
-                            val_loss[k] += v.item()
+            self.model.eval()
+            val_loss = dict(
+                val_total_loss=0,
+                val_lwh_loss=0,
+                val_rot_loss=0,
+                val_tr_loss=0,
+                val_corner_loss=0,
+                val_iou_metric=0,
+                epoch=epoch,
+            )
+            with torch.no_grad():
+                for batch in tqdm(
+                    self.valloader, desc="validating", position=2, leave=False
+                ):
+                    loss_dict = self._step(batch)
+                    # accumulate losses
+                    for k, v in loss_dict.items():
+                        val_loss["val_"+k] += v.item() if isinstance(v, torch.Tensor) else v
 
-                # average out the losses
-                valloader_len = len(self.valloader)
-                for k, v in loss_dict.items():
+            # average out the losses
+            valloader_len = len(self.valloader)
+            for k, v in val_loss.items():
+                if k != "epoch":
                     val_loss[k] /= valloader_len
 
-                # log
-                wandb.log(val_loss)
+            # log
+            wandb.log(val_loss)
 
-                tqdm.write(
-                    f"Epoch [{epoch + 1}/{self.epochs}] | Train Loss: {epoch_loss['total_loss']:.4f} | Val Loss: {val_loss['total_loss']:.4f}"
-                )
+            tqdm.write(
+                f"Epoch [{epoch + 1}/{self.epochs}] | Train Loss: {epoch_loss['train_total_loss']:.4f} | Val Loss: {val_loss['val_total_loss']:.4f} | Val IoU: {val_loss['val_iou_metric']:.4f}"
+            )
 
+            # save best
+            if val_loss['val_iou_metric'] > best_iou:
+                best_iou = val_loss['val_iou_metric']
+                self.save_checkpoint("best", val_loss)
+
+            # save every interval
+            if (epoch % self.ckpt_interval == 0):
                 # save checkpoints
                 self.save_checkpoint(epoch, val_loss)
+            
+            # save last
+            if epoch == self.epochs -1:
+                self.save_checkpoint("last", val_loss)
 
     def _step(self, batch):
         # move everything to model device
@@ -168,7 +185,10 @@ class Trainer:
 
         pred_corners = reconstruct_bbox(pred_lwh, pred_rot, pred_tr)
         gt_corners = reconstruct_bbox(gt_lwh, gt_rot, gt_tr)
-
+        
+        # metric
+        iou = iou3d(pred_corners, gt_corners)
+        
         # loss
         lwh_loss, rot_loss, tr_loss, corner_loss = (
             loss_lwh(pred_delta_lwh, gt_delta_lwh),
@@ -189,6 +209,7 @@ class Trainer:
             rot_loss=rot_loss,
             tr_loss=tr_loss,
             corner_loss=corner_loss,
+            iou_metric=iou
         )
 
     def get_optimizer(self, learning_rate, weight_decay, betas):
@@ -201,7 +222,7 @@ class Trainer:
         return optimizer
 
     def save_checkpoint(self, epoch, val_loss):
-        ckpt_path = os.path.join(self.ckpt_dir, f"checkpoint_epoch{epoch}.pth")
+        ckpt_path = os.path.join(self.ckpt_dir, f"checkpoint_epoch_{epoch}.pth")
         torch.save(
             {
                 "epoch": epoch,
@@ -215,8 +236,6 @@ class Trainer:
 
 
 if __name__ == "__main__":
-    import torch
-
     from src.data.dataset import get_dataloader
     from src.data.splits import get_splits
     from src.training.trainer import Trainer
@@ -224,7 +243,7 @@ if __name__ == "__main__":
     from src.models.boxestimator import BoxEstimationNet
 
     FRAME = "pca"
-    BATCH_SZ = 4
+    BATCH_SZ = 32
     NUM_WORKERS = 2
     N = 1024
 
@@ -247,17 +266,9 @@ if __name__ == "__main__":
         canonical_frame=FRAME,
         N=N,
     )
-    testloader = get_dataloader(
-        split_paths["test"],
-        augment=False,
-        shuffle=False,
-        batch_size=BATCH_SZ,
-        num_workers=NUM_WORKERS,
-        canonical_frame=FRAME,
-        N=N,
-    )
+    
 
-    loss_lambda = LossLambda(lwh=1, rot=1, tr=1, corner=1)
+    loss_lambda = LossLambda(corner=4, lwh=3, rot=2, tr=1)
 
     model = BoxEstimationNet(in_channels=6)
 
@@ -266,6 +277,6 @@ if __name__ == "__main__":
     print("total params:", total_params)
     print("trainable params:", trainable_params)
 
-    trainer = Trainer(model, trainloader, valloader, loss_lambda)
+    trainer = Trainer(model, trainloader, valloader, loss_lambda, epochs=100)
 
     trainer.train()
