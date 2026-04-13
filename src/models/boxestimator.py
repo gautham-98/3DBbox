@@ -50,7 +50,12 @@ class BoxEstimationNet(nn.Module):
             nn.ReLU(),
             nn.Dropout(dropout),
 
-            nn.Linear(32, 6),
+            nn.Linear(32, 16),   
+            nn.BatchNorm1d(16),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+
+            nn.Linear(16, 6),
         )   
         self.head_lwh         = nn.Sequential(
             nn.Linear(64, 32),   
@@ -64,14 +69,13 @@ class BoxEstimationNet(nn.Module):
             nn.Dropout(dropout),
 
             nn.Linear(16, 3),
-            nn.ReLU(),
         )  
 
     def forward(self, pc: torch.Tensor):
         x = pc.transpose(1, 2)              # (B, C, N)
         x = self.point_mlp(x)               
 
-        # maxpool for single descriptor representing the pointcloud
+        # maxpool 
         x = x.max(dim=2)[0]                 # (B, 256)
 
         x = self.fc(x)                      # (B, 128)
