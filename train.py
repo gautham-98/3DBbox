@@ -76,7 +76,7 @@ def main():
     )
 
     # loss weighing
-    loss_lambda = LossLambda(corner=2, lwh=3, rot=4, tr=1)
+    loss_lambda = LossLambda(corner=2, lwh=0.5, rot=5, tr=1)
 
     # model
     model = BoxEstimationNet(in_channels=6)
@@ -107,7 +107,7 @@ def main():
     trainer.train()
 
     # evaluation
-    CKPT_PATH = ckpt_dir + "checkpoint_epoch_best.pth"
+    CKPT_PATH = ckpt_dir + "/checkpoint_epoch_best.pth"
 
     print("\n=== STARTING EVALUATION ===")
     print(f"Checkpoint: {CKPT_PATH}")
