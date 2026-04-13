@@ -43,7 +43,7 @@ class Trainer:
         self.ckpt_dir = ckpt_dir
         os.makedirs(self.ckpt_dir, exist_ok=True)
 
-        wandb.init(
+        self.wandb_run = wandb.init(
             project="BBox3D",
             name=f"{run_name}_{datetime.datetime.now():%Y%m%d_%H%M%S}",
             config={
@@ -232,6 +232,12 @@ class Trainer:
             },
             ckpt_path,
         )
+        if epoch == "last":
+            artifact = wandb.Artifact('model-checkpoint', type='model')
+            artifact.add_file(self.ckpt_dir+'/checkpoint_epoch_last.pth')
+            artifact.add_file(self.ckpt_dir+'/checkpoint_epoch_best.pth')
+            self.wandb_run.log_artifact(artifact)
+            
         print(f"Saved checkpoint at {ckpt_path}")
 
 
