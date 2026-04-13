@@ -57,7 +57,7 @@ class Evaluator:
                 pred_rot = rot6d_to_rotmat(pred_6d)
 
                 proposed_corners = (
-                    BBOX3D_CORNERS[None, ...]
+                    BBOX3D_CORNERS[None, ...].to(prop_lwh.device)
                     * prop_lwh[:, None, :]
                 )
 
