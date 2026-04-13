@@ -22,7 +22,7 @@ def parse_args():
         "--frame",
         type=str,
         default="obb",
-        choices=["obb", "canonical"],
+        choices=["obb", "pca"],
         help="Canonical frame type",
     )
     parser.add_argument(
