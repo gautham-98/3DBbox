@@ -5,39 +5,67 @@ from src.training.losses import LossLambda
 from src.training.trainer import Trainer
 from src.eval.evaluator import Evaluator
 
+import argparse
 
-# training parameters
-EPOCHS = 100
-BATCH_SZ = 32 
 
-# data parameters
-FRAME = "pca" # canonical frame
-NUM_WORKERS = 2
-N = 1024 # number of points in pointcloud after resampling
+def parse_args():
+    parser = argparse.ArgumentParser(description="Training Box Estimation Network")
 
-# prepare dataloaders
-split_paths = get_splits(data_dir="dataset")
-trainloader = get_dataloader(
-    split_paths["train"],
-    augment=True,
-    shuffle=True,
-    batch_size=BATCH_SZ,
-    num_workers=NUM_WORKERS,
-    canonical_frame=FRAME,
-    N=N,
-)
+    # training parameters
+    parser.add_argument(
+        "--epochs", type=int, default=400, help="Number of training epochs"
+    )
+    parser.add_argument("--batch_size", type=int, default=32, help="Batch size")
 
-valloader = get_dataloader(
-    split_paths["val"], 
-    augment=False,
-    shuffle=False,
-    batch_size=BATCH_SZ,
-    num_workers=NUM_WORKERS,
-    canonical_frame=FRAME,
-    N=N,
-)
+    # data parameters
+    parser.add_argument(
+        "--frame",
+        type=str,
+        default="obb",
+        choices=["obb", "canonical"],
+        help="Canonical frame type",
+    )
+    parser.add_argument(
+        "--num_points", type=int, default=1024, help="Number of points per point cloud"
+    )
 
-testloader = get_dataloader(
+    return parser.parse_args()
+
+
+def main():
+    args = parse_args()
+
+    EPOCHS = args.epochs
+    BATCH_SZ = args.batch_size
+    FRAME = args.frame
+    N = args.num_points
+
+    NUM_WORKERS = 2
+
+    # prepare dataloaders
+    split_paths = get_splits(data_dir="dataset")
+
+    trainloader = get_dataloader(
+        split_paths["train"],
+        augment=True,
+        shuffle=True,
+        batch_size=BATCH_SZ,
+        num_workers=NUM_WORKERS,
+        canonical_frame=FRAME,
+        N=N,
+    )
+
+    valloader = get_dataloader(
+        split_paths["val"],
+        augment=False,
+        shuffle=False,
+        batch_size=BATCH_SZ,
+        num_workers=NUM_WORKERS,
+        canonical_frame=FRAME,
+        N=N,
+    )
+
+    testloader = get_dataloader(
         split_paths["test"],
         augment=False,
         shuffle=False,
@@ -47,35 +75,40 @@ testloader = get_dataloader(
         N=N,
     )
 
+    # loss weighing
+    loss_lambda = LossLambda(corner=2, lwh=3, rot=4, tr=1)
 
-# loss weighing 
-loss_lambda = LossLambda(corner=2, lwh=3, rot=4, tr=1)
+    # model
+    model = BoxEstimationNet(in_channels=6)
 
-# model
-model = BoxEstimationNet(in_channels=6)
+    # count params
+    total_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-
-# count and print params in model
-total_params = sum(p.numel() for p in model.parameters())
-trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-print(f"Model parameters: total={total_params:,} trainable={trainable_params:,}")
-print(f"Training config: epochs={EPOCHS} batch_size={BATCH_SZ} frame={FRAME} N={N}")
-print(f"Data sizes: train={len(trainloader.dataset)} val={len(valloader.dataset)} test={len(testloader.dataset)}")
-
-# trainer init and training
-print("\n=== STARTING TRAINING ===")
-trainer = Trainer(model, trainloader, valloader, loss_lambda, epochs=EPOCHS)
-trainer.train()
-
-# evaluation
-CKPT_PATH = "./checkpoints/checkpoint_epoch_best.pth"
-
-# init evaluator and evaluate
-print("\n=== STARTING EVALUATION ===")
-print(f"Checkpoint: {CKPT_PATH}")
-evaluator = Evaluator(
-        model,
-        CKPT_PATH,
-        testloader
+    print(f"Model parameters: total={total_params:,} trainable={trainable_params:,}")
+    print(f"Training config: epochs={EPOCHS} batch_size={BATCH_SZ} frame={FRAME} N={N}")
+    print(
+        f"Data sizes: train={len(trainloader.dataset)} val={len(valloader.dataset)} test={len(testloader.dataset)}"
     )
-evaluator.evaluate()
+
+    # training
+    print("\n=== STARTING TRAINING ===")
+    run_name = f"train_N{N}_frame{FRAME}_ep{EPOCHS}_btc{BATCH_SZ}"
+
+    trainer = Trainer(
+        model, trainloader, valloader, loss_lambda, epochs=EPOCHS, run_name=run_name
+    )
+    trainer.train()
+
+    # evaluation
+    CKPT_PATH = "./checkpoints/checkpoint_epoch_best.pth"
+
+    print("\n=== STARTING EVALUATION ===")
+    print(f"Checkpoint: {CKPT_PATH}")
+
+    evaluator = Evaluator(model, CKPT_PATH, testloader)
+    evaluator.evaluate()
+
+
+if __name__ == "__main__":
+    main()
