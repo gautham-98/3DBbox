@@ -7,6 +7,8 @@ import wandb
 import datetime
 
 from src.models.boxestimator import BoxEstimationNet
+from src.models.boxestimator_utonia import BoxEstimationNetUtonia
+
 from .losses import loss_cluster, loss_residual, loss_rot, loss_tr, loss_corners, LossLambda
 from src.utils.box_utils import reconstruct_bbox
 from src.utils.rot_utils import rot6d_to_rotmat
@@ -18,7 +20,7 @@ DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 class Trainer:
     def __init__(
         self,
-        model: BoxEstimationNet,
+        model: BoxEstimationNet|BoxEstimationNetUtonia,
         trainloader: DataLoader,
         valloader: DataLoader,
         loss_lambda: LossLambda,
@@ -32,7 +34,7 @@ class Trainer:
         ckpt_dir: str = "./checkpoints",
         run_name: str = "training",
     ):
-        self.model: BoxEstimationNet = model.to(DEVICE)
+        self.model: BoxEstimationNet|BoxEstimationNetUtonia = model.to(DEVICE)
         self.trainloader = trainloader
         self.valloader = valloader
         self.epochs = epochs

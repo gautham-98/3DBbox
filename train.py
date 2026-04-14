@@ -4,6 +4,7 @@ from torch.utils.data import DataLoader
 from src.data.dataset import BBox3DDataset, get_dataloader
 from src.data.splits import get_splits
 from src.models.boxestimator import BoxEstimationNet
+from src.models.boxestimator_utonia import BoxEstimationNetUtonia
 from src.training.losses import LossLambda
 from src.training.trainer import Trainer
 from src.eval.evaluator import Evaluator
@@ -42,6 +43,13 @@ def parse_args():
         default="kmeans_centers.npy",
         help="Path to save/load K-means cluster centers",
     )
+    parser.add_argument(
+        "--model",
+        type=str,
+        default="pointnet",
+        help="Model name 'utonia' or 'pointnet'"
+
+    )
 
     return parser.parse_args()
 
@@ -54,6 +62,7 @@ def main():
     FRAME = args.frame
     N = args.num_points
     K = args.num_clusters
+    MODEL = args.model
     NUM_WORKERS = 2
 
     split_paths = get_splits(data_dir="dataset")
@@ -105,8 +114,13 @@ def main():
     loss_lambda = LossLambda(cluster=1.0, residual=1.0, rot=2.0, tr=1.0, corner=2.0)
 
     # model
-    model = BoxEstimationNet(in_channels=6, num_clusters=K)
-
+    if MODEL == "pointnet":
+        model = BoxEstimationNet(in_channels=6, num_clusters=K)
+    elif MODEL == "utonia":
+        model = BoxEstimationNetUtonia(flash_attn=False, num_clusters=K)
+    else:
+        raise ValueError("Choose either 'utonia' or 'pointnet'")
+    
     # count params
     total_params = sum(p.numel() for p in model.parameters())
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -119,8 +133,8 @@ def main():
 
     # training
     print("\n=== STARTING TRAINING ===")
-    run_name = f"train_N{N}_frame{FRAME}_ep{EPOCHS}_btc{BATCH_SZ}_K{K}"
-    ckpt_dir = f"ckpt_N{N}_F{FRAME}_EP{EPOCHS}_B{BATCH_SZ}_K{K}"
+    run_name = f"train_N{N}_M{MODEL}_F{FRAME}_EP{EPOCHS}_B{BATCH_SZ}_K{K}"
+    ckpt_dir = f"ckpt_N{N}_M{MODEL}_F{FRAME}_EP{EPOCHS}_B{BATCH_SZ}_K{K}"
 
     kmeans_tensor = torch.from_numpy(centers).float()
     trainer = Trainer(
