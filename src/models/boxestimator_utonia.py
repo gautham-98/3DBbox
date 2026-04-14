@@ -37,7 +37,7 @@ class BoxEstimationNetUtonia(nn.Module):
     def __init__(
         self,
         num_clusters: int = 8,
-        dropout: float = 0.3,
+        dropout: float = 0.1,
         flash_attn: bool = False,
         upcast_levels: int = 2,
     ):
@@ -107,7 +107,7 @@ class BoxEstimationNetUtonia(nn.Module):
 
         # grid_coord per sample so serialization z-order is correct
         coord_min  = coord.min(dim=1, keepdim=True).values          # (B, 1, 3)
-        grid_coord = torch.div(coord - coord_min, 0.01,
+        grid_coord = torch.div(coord - coord_min, 0.001,
                                rounding_mode="trunc").int()          # (B, N, 3)
 
         coord_flat      = coord.reshape(B * N, 3)
