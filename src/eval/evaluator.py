@@ -3,6 +3,8 @@ from tqdm import tqdm
 from torch.utils.data import DataLoader
 
 from src.models.boxestimator import BoxEstimationNet
+from src.models.boxestimator_utonia import BoxEstimationNetUtonia
+
 from src.utils.box_utils import reconstruct_bbox
 from src.utils.rot_utils import rot6d_to_rotmat
 from src.eval.metrics import iou3d
@@ -12,8 +14,8 @@ DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 class Evaluator:
-    def __init__(self, model: BoxEstimationNet, ckpt_path: str, testloader: DataLoader):
-        self.model: BoxEstimationNet = model.to(DEVICE)
+    def __init__(self, model: BoxEstimationNet|BoxEstimationNetUtonia, ckpt_path: str, testloader: DataLoader):
+        self.model: BoxEstimationNet|BoxEstimationNetUtonia = model.to(DEVICE)
         self.testloader = testloader
         self.load_model(ckpt_path)
 
