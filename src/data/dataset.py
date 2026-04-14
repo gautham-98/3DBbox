@@ -25,12 +25,14 @@ class BBox3DDataset(Dataset):
         N: int = 1024,
         cache_dir: str = "data_cache",
         canonical_frame: str = "pca",
+        kmeans_centers: np.ndarray | None = None,
     ):
         self.augment = augment
         self.N = N
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(exist_ok=True)
         self.canonical_frame = canonical_frame
+        self.kmeans_centers = kmeans_centers  # (K, 3) or None
 
         self.items: list[tuple[Path, int, str]] = []  # scene, obj_id, frame
         self._build_index(sample_paths)
@@ -85,6 +87,36 @@ class BBox3DDataset(Dataset):
                 if np.load(cpath, allow_pickle=False)["valid"]:
                     self.items.append((sp, i, self.canonical_frame))
 
+    # ------------------------------------------------------------------
+    # K-means anchor clustering
+    # ------------------------------------------------------------------
+
+    def fit_kmeans(self, k: int) -> np.ndarray:
+        """Fit K-means on gt_lwh of all cached items (training split only).
+
+        Returns cluster centers of shape (k, 3) and stores them as
+        self.kmeans_centers.
+        """
+        from sklearn.cluster import KMeans
+
+        all_lwh = [
+            np.load(self._inst_cache(*item), allow_pickle=False)["gt_lwh"]
+            for item in self.items
+        ]
+        km = KMeans(n_clusters=k, random_state=42, n_init=10).fit(np.stack(all_lwh))
+        self.kmeans_centers = km.cluster_centers_.astype(np.float32)  # (K, 3)
+        return self.kmeans_centers
+
+    def save_kmeans(self, path: str) -> None:
+        """Save cluster centers to a .npy file."""
+        np.save(path, self.kmeans_centers)
+
+    def load_kmeans(self, path: str) -> None:
+        """Load cluster centers from a .npy file."""
+        self.kmeans_centers = np.load(path).astype(np.float32)
+
+    # ------------------------------------------------------------------
+
     def __len__(self) -> int:
         return len(self.items)
 
@@ -96,7 +128,6 @@ class BBox3DDataset(Dataset):
         cols = torch.from_numpy(c["cols"])  # (N, 3)
         frame_rotation = torch.from_numpy(c["frame_rotation"])  # (3, 3) world→canonical
         frame_translation = torch.from_numpy(c["frame_translation"])  # (3,)
-        proposed_lwh = torch.from_numpy(c["proposed_lwh"])  # (3,)
         gt_lwh = torch.from_numpy(c["gt_lwh"])  # (3,)
         gt_rotation = torch.from_numpy(
             c["gt_rotation"]
@@ -110,18 +141,21 @@ class BBox3DDataset(Dataset):
                 pts, cols, frame_rotation, gt_rotation, gt_translation
             )
 
+        # Compute cluster id and residual from K-means centers
+        centers = torch.from_numpy(self.kmeans_centers)  # (K, 3)
+        dists = ((centers - gt_lwh.unsqueeze(0)) ** 2).sum(-1)  # (K,)
+        cluster_id = dists.argmin().long()  # scalar int64
+        residual = gt_lwh - centers[cluster_id]  # (3,) absolute residual
 
         return dict(
-            points=pts,
-            colors=cols,
-            gt_lwh=gt_lwh,  # (3,)  GT box dimensions
-            gt_rotation=gt_rotation,  # (3,3) GT box axes in canonical frame
-            gt_translation=gt_translation,  # (3,) GT box translation in canonical frame
-            frame_rotation=frame_rotation,  # (3,3) world to canonical  (canonical to world: rot.T)
-            frame_translation=frame_translation,  # (3,)  canonical frame origin in world
-            proposed_lwh=proposed_lwh,  # (3,)  proposed PCA box dimensions
-            sample_id=sp.name,
-            obj_idx=obj_idx,
+            points=pts,                           # (N, 3)
+            colors=cols,                          # (N, 3)
+            gt_cluster_id=cluster_id,             # () long — anchor cluster index
+            gt_residual=residual,                 # (3,) residual from cluster center
+            gt_rotation=gt_rotation,              # (3, 3) GT box axes in canonical frame
+            gt_translation=gt_translation,        # (3,) GT box translation in canonical frame
+            frame_rotation=frame_rotation,        # (3, 3) world to canonical
+            frame_translation=frame_translation,  # (3,) canonical frame origin in world
         )
 
 
@@ -131,10 +165,11 @@ def get_dataloader(
     shuffle: bool = False,
     batch_size: int = 32,
     num_workers: int = 4,
+    kmeans_centers: np.ndarray | None = None,
     **kwargs,
 ) -> DataLoader:
     ds = BBox3DDataset(
-        sample_paths, augment=augment, **kwargs
+        sample_paths, augment=augment, kmeans_centers=kmeans_centers, **kwargs
     )
     return DataLoader(
         ds,
@@ -142,115 +177,43 @@ def get_dataloader(
         shuffle=shuffle,
         num_workers=num_workers,
         pin_memory=True,
-        drop_last=True,  
+        drop_last=True,
     )
 
 
 if __name__ == "__main__":
     splits = get_splits("dataset")
-    loader = get_dataloader(
+
+    # Fit K-means on training data
+    train_ds = BBox3DDataset(
         splits["train"][:10],
         augment=False,
-        shuffle=False,
-        batch_size=4,
-        num_workers=0,
         N=1024,
         canonical_frame="pca",
     )
+    centers = train_ds.fit_kmeans(k=8)
+    print(f"K-means centers shape: {centers.shape}")
+    print(f"Cluster centers:\n{centers}")
+
+    # Wrap in DataLoader
+    loader = DataLoader(train_ds, batch_size=4, shuffle=False, num_workers=0)
 
     batch = next(iter(loader))
-    print("points:            ", batch["points"].shape)
-    print("colors:            ", batch["colors"].shape)
-    print("gt_lwh:            ", batch["gt_lwh"].shape)
-    print("gt_rotation:       ", batch["gt_rotation"].shape)
-    print("frame_rotation:    ", batch["frame_rotation"].shape)
-    print("frame_translation: ", batch["frame_translation"].shape)
-    print("gt_translation:    ", batch["gt_translation"].shape)
-    print("proposed_lwh:      ", batch["proposed_lwh"].shape)
+    print("points:             ", batch["points"].shape)
+    print("colors:             ", batch["colors"].shape)
+    print("gt_cluster_id:      ", batch["gt_cluster_id"].shape, batch["gt_cluster_id"].dtype)
+    print("gt_residual:        ", batch["gt_residual"].shape)
+    print("gt_rotation:        ", batch["gt_rotation"].shape)
+    print("frame_rotation:     ", batch["frame_rotation"].shape)
+    print("frame_translation:  ", batch["frame_translation"].shape)
+    print("gt_translation:     ", batch["gt_translation"].shape)
     print(f"Total train items: {len(loader.dataset)}")
 
-    # visualise
-    os.environ["XDG_SESSION_TYPE"] = "x11"
-    import open3d as o3d
-
-    idx = 2
-    pts_np = batch["points"][idx].numpy()
-    col_np = batch["colors"][idx].numpy()
-    rot = batch["frame_rotation"][idx].numpy()
-    tr = batch["frame_translation"][idx].numpy()
-    gt_lwh = batch["gt_lwh"][idx].numpy()
-    gt_rot = batch["gt_rotation"][idx].numpy()
-    p_lwh = batch["proposed_lwh"][idx].numpy()
-    gt_tr = batch["gt_translation"][idx].numpy()
-
-    # load raw GT bbox from disk and transform to canonical frame
-    sp_str = batch["sample_id"][idx]
-    obj_idx = batch["obj_idx"][idx]
-    bbox_world = np.load(f"dataset/{sp_str}/bbox3d.npy")[obj_idx].astype(
-        np.float32
-    )  # (8,3)
-    # pc_full = np.load(f"dataset/{sp_str}/pc.npy")  # (3, H, W)
-    # rgb_full = np.array(Image.open(f"dataset/{sp_str}/rgb.jpg"))
-    # mask = np.load(f"dataset/{sp_str}/mask.npy")[obj_idx].astype(bool)  # (H, W)
-    # pts, cols = extract_instance_points(pc_full, rgb_full, mask)  # to ensure instance points are correct
-    # pcd = o3d.geometry.PointCloud()
-    # valid = pc_full[2] > 0.01  # filter zero-depth
-    # pcd.points = o3d.utility.Vector3dVector(pts)
-    # pcd.colors = o3d.utility.Vector3dVector(cols)
-    # lines_world = o3d.geometry.LineSet()
-    # lines_world.points = o3d.utility.Vector3dVector(bbox_world)
-    # lines_world.lines = o3d.utility.Vector2iVector([
-    #     [0,1],[1,2],[2,3],[3,0],
-    #     [4,5],[5,6],[6,7],[7,4],
-    #     [0,4],[1,5],[2,6],[3,7],
-    # ])
-    # lines_world.paint_uniform_color([0.0, 0.0, 1.0])  # blue = raw GT in world frame
-    # o3d.visualization.draw_geometries([pcd, lines_world], window_name="GT box in world frame (blue)")
-
-    # canonical frame visualisation
-    bbox_canonical = (bbox_world - tr) @ rot  # world → canonical
-
-    pcd = o3d.geometry.PointCloud()
-    pcd.points = o3d.utility.Vector3dVector(
-        pts_np @ rot.T + tr # maps back to canonical frame
-    )  # transform points to canonical frame for visualisation
-    pcd.colors = o3d.utility.Vector3dVector(col_np)
-
-    corners_gt = (
-        (BBOX3D_CORNERS * gt_lwh) @ gt_rot.T + gt_tr # express the corners in canonical frame
-    )  @ rot.T + tr # map back to world
-    corners_frame = (
-        BBOX3D_CORNERS * p_lwh # proposed box corners in canonical frame
-    )  @ rot.T + tr # map back to world
-    edges = [
-        [0, 1],
-        [1, 2],
-        [2, 3],
-        [3, 0],
-        [4, 5],
-        [5, 6],
-        [6, 7],
-        [7, 4],
-        [0, 4],
-        [1, 5],
-        [2, 6],
-        [3, 7],
-    ]
-    lines1 = o3d.geometry.LineSet()
-    lines1.points = o3d.utility.Vector3dVector(corners_gt)
-    lines1.lines = o3d.utility.Vector2iVector(edges)
-    lines1.paint_uniform_color(
-        [0.0, 1.0, 0.0]
-    )  # green = GT (reconstructed from lwh+rot)
-
-    lines2 = o3d.geometry.LineSet()
-    lines2.points = o3d.utility.Vector3dVector(corners_frame)
-    lines2.lines = o3d.utility.Vector2iVector(edges)
-    lines2.paint_uniform_color([1.0, 0.0, 0.0])  # red = proposed PCA box
-
-    lines3 = o3d.geometry.LineSet()
-    lines3.points = o3d.utility.Vector3dVector(bbox_world)
-    lines3.lines = o3d.utility.Vector2iVector(edges)
-    lines3.paint_uniform_color([0.0, 0.0, 1.0])  # blue = raw GT in canonical frame
-
-    o3d.visualization.draw_geometries([pcd, lines1, lines2, lines3])
+    # Sanity check: residual + center should reconstruct gt_lwh
+    idx = 0
+    cid = batch["gt_cluster_id"][idx].item()
+    res = batch["gt_residual"][idx]
+    reconstructed = torch.from_numpy(centers[cid]) + res
+    print(f"\nSanity check (sample {idx}):")
+    print(f"  cluster_id={cid}  center={centers[cid]}  residual={res.numpy()}")
+    print(f"  reconstructed lwh = {reconstructed.numpy()}")
