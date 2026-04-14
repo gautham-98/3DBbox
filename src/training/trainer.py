@@ -7,12 +7,11 @@ import wandb
 import datetime
 
 from src.models.boxestimator import BoxEstimationNet
-from .losses import loss_lwh, loss_rot, loss_tr, loss_corners, LossLambda
-from src.utils.box_utils import get_delta_lwh, reconstruct_bbox
+from .losses import loss_cluster, loss_residual, loss_rot, loss_tr, loss_corners, LossLambda
+from src.utils.box_utils import reconstruct_bbox
 from src.utils.rot_utils import rot6d_to_rotmat
 from src.eval.metrics import iou3d
 
-# at beginning of the script
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
@@ -23,6 +22,7 @@ class Trainer:
         trainloader: DataLoader,
         valloader: DataLoader,
         loss_lambda: LossLambda,
+        kmeans_centers: torch.Tensor,
         epochs: int = 10,
         learning_rate: float = 1e-4,
         weight_decay: float = 0.2,
@@ -39,6 +39,9 @@ class Trainer:
         self.optimizer = self.get_optimizer(learning_rate, weight_decay, betas)
         self.loss_lambda: LossLambda = loss_lambda
 
+        # K-means cluster centers on device — shape (K, 3)
+        self.kmeans_centers = kmeans_centers.to(DEVICE)
+
         self.ckpt_interval = ckpt_interval
         self.ckpt_dir = ckpt_dir
         os.makedirs(self.ckpt_dir, exist_ok=True)
@@ -52,6 +55,7 @@ class Trainer:
                 "weight_decay": weight_decay,
                 "betas": betas,
                 "gamma": gamma,
+                "num_clusters": kmeans_centers.shape[0],
             },
         )
 
@@ -64,7 +68,8 @@ class Trainer:
 
             epoch_loss = dict(
                 train_total_loss=0,
-                train_lwh_loss=0,
+                train_cluster_loss=0,
+                train_residual_loss=0,
                 train_rot_loss=0,
                 train_tr_loss=0,
                 train_corner_loss=0,
@@ -109,7 +114,8 @@ class Trainer:
             self.model.eval()
             val_loss = dict(
                 val_total_loss=0,
-                val_lwh_loss=0,
+                val_cluster_loss=0,
+                val_residual_loss=0,
                 val_rot_loss=0,
                 val_tr_loss=0,
                 val_corner_loss=0,
@@ -145,11 +151,10 @@ class Trainer:
 
             # save every interval
             if (epoch % self.ckpt_interval == 0):
-                # save checkpoints
                 self.save_checkpoint(epoch, val_loss)
-            
+
             # save last
-            if epoch == self.epochs -1:
+            if epoch == self.epochs - 1:
                 self.save_checkpoint("last", val_loss)
 
     def _step(self, batch):
@@ -158,58 +163,66 @@ class Trainer:
             if isinstance(v, torch.Tensor):
                 batch[k] = v.to(DEVICE)
 
-        # extract the inputs and outputs from batch
-        points = batch["points"]
-        colors = batch["colors"]
-        gt_lwh = batch["gt_lwh"]
-        gt_tr = batch["gt_translation"]
-        gt_rot = batch["gt_rotation"]
-        prop_lwh = batch["proposed_lwh"]
-        gt_delta_lwh = get_delta_lwh(prop_lwh, gt_lwh)
+        # extract inputs and targets from batch
+        points        = batch["points"]
+        colors        = batch["colors"]
+        gt_cluster_id = batch["gt_cluster_id"]   # (B,) long
+        gt_residual   = batch["gt_residual"]      # (B, 3)
+        gt_tr         = batch["gt_translation"]   # (B, 3)
+        gt_rot        = batch["gt_rotation"]      # (B, 3, 3)
 
-        # use the colors too in pc
+        # build point cloud input
         num_channels = self.model.in_channels
         if num_channels == 3:
-            pc = points  # (B,N,3)
+            pc = points
         elif num_channels == 6:
-            pc = torch.cat([points, colors], dim=-1)  # (B,N,6)
+            pc = torch.cat([points, colors], dim=-1)  # (B, N, 6)
         else:
             raise ValueError(
                 "the number of channels can be either 3 or 6 for the model, check model init"
             )
 
         # model forward
-        pred_delta_lwh, pred_6d, pred_tr = self.model(pc)
-        pred_lwh = prop_lwh * (1 + pred_delta_lwh)
+        cluster_logits, pred_6d, pred_tr, pred_residual = self.model(pc)
         pred_rot = rot6d_to_rotmat(pred_6d)
 
+        # Reconstruct pred_lwh using soft (differentiable) cluster center weighted sum
+        cluster_probs    = cluster_logits.softmax(dim=1)               # (B, K)
+        pred_lwh_cluster = cluster_probs @ self.kmeans_centers         # (B, 3)
+        pred_lwh         = pred_lwh_cluster + pred_residual            # (B, 3)
+
+        # GT lwh from cluster center + residual (for corner loss)
+        gt_lwh = self.kmeans_centers[gt_cluster_id] + gt_residual      # (B, 3)
+
         pred_corners = reconstruct_bbox(pred_lwh, pred_rot, pred_tr)
-        gt_corners = reconstruct_bbox(gt_lwh, gt_rot, gt_tr)
-        
+        gt_corners   = reconstruct_bbox(gt_lwh, gt_rot, gt_tr)
+
         # metric
         iou = iou3d(pred_corners, gt_corners)
-        
-        # loss
-        lwh_loss, rot_loss, tr_loss, corner_loss = (
-            loss_lwh(pred_delta_lwh, gt_delta_lwh),
-            loss_rot(pred_rot, gt_rot),
-            loss_tr(pred_tr, gt_tr),
-            loss_corners(pred_corners, gt_corners),
-        )
+
+        # losses
+        clust_loss  = loss_cluster(cluster_logits, gt_cluster_id)
+        resid_loss  = loss_residual(pred_residual, gt_residual)
+        rot_loss    = loss_rot(pred_rot, gt_rot)
+        tr_loss     = loss_tr(pred_tr, gt_tr)
+        corner_loss = loss_corners(pred_corners, gt_corners)
+
         total_loss = (
-            self.loss_lambda["lwh"] * lwh_loss
-            + self.loss_lambda["rot"] * rot_loss
-            + self.loss_lambda["tr"] * tr_loss
-            + self.loss_lambda["corner"] * corner_loss
+            self.loss_lambda["cluster"]  * clust_loss
+            + self.loss_lambda["residual"] * resid_loss
+            + self.loss_lambda["rot"]      * rot_loss
+            + self.loss_lambda["tr"]       * tr_loss
+            + self.loss_lambda["corner"]   * corner_loss
         )
 
         return dict(
             total_loss=total_loss,
-            lwh_loss=lwh_loss,
+            cluster_loss=clust_loss,
+            residual_loss=resid_loss,
             rot_loss=rot_loss,
             tr_loss=tr_loss,
             corner_loss=corner_loss,
-            iou_metric=iou
+            iou_metric=iou,
         )
 
     def get_optimizer(self, learning_rate, weight_decay, betas):
@@ -229,6 +242,7 @@ class Trainer:
                 "model_state_dict": self.model.state_dict(),
                 "optimizer_state_dict": self.optimizer.state_dict(),
                 "val_loss": val_loss,
+                "kmeans_centers": self.kmeans_centers.cpu().numpy(),
             },
             ckpt_path,
         )
@@ -237,12 +251,14 @@ class Trainer:
             artifact.add_file(self.ckpt_dir+'/checkpoint_epoch_last.pth')
             artifact.add_file(self.ckpt_dir+'/checkpoint_epoch_best.pth')
             self.wandb_run.log_artifact(artifact)
-            
+
         print(f"Saved checkpoint at {ckpt_path}")
 
 
 if __name__ == "__main__":
-    from src.data.dataset import get_dataloader
+    import numpy as np
+    from torch.utils.data import DataLoader
+    from src.data.dataset import BBox3DDataset
     from src.data.splits import get_splits
     from src.training.trainer import Trainer
     from src.training.losses import LossLambda
@@ -252,37 +268,46 @@ if __name__ == "__main__":
     BATCH_SZ = 32
     NUM_WORKERS = 2
     N = 1024
+    K = 8
 
     split_paths = get_splits(data_dir="dataset")
-    trainloader = get_dataloader(
-        split_paths["train"],
-        augment=True,
-        shuffle=True,
-        batch_size=BATCH_SZ,
-        num_workers=NUM_WORKERS,
-        canonical_frame=FRAME,
-        N=N,
+
+    # Fit K-means on training data
+    train_ds = BBox3DDataset(
+        split_paths["train"], augment=True, N=N, canonical_frame=FRAME
     )
+    centers = train_ds.fit_kmeans(k=K)
+
+    trainloader = DataLoader(
+        train_ds, batch_size=BATCH_SZ, shuffle=True,
+        num_workers=NUM_WORKERS, pin_memory=True, drop_last=True,
+    )
+
+    from src.data.dataset import get_dataloader
     valloader = get_dataloader(
-        split_paths["val"], 
+        split_paths["val"],
         augment=False,
         shuffle=False,
         batch_size=BATCH_SZ,
         num_workers=NUM_WORKERS,
         canonical_frame=FRAME,
         N=N,
+        kmeans_centers=centers,
     )
-    
 
-    loss_lambda = LossLambda(corner=4, lwh=3, rot=2, tr=1)
+    loss_lambda = LossLambda(cluster=1.0, residual=0.5, corner=4, rot=2, tr=1)
 
-    model = BoxEstimationNet(in_channels=6)
+    model = BoxEstimationNet(in_channels=6, num_clusters=K)
 
     total_params = sum(p.numel() for p in model.parameters())
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print("total params:", total_params)
     print("trainable params:", trainable_params)
 
-    trainer = Trainer(model, trainloader, valloader, loss_lambda, epochs=100)
+    kmeans_tensor = torch.from_numpy(centers).float()
+    trainer = Trainer(
+        model, trainloader, valloader, loss_lambda,
+        kmeans_centers=kmeans_tensor, epochs=100,
+    )
 
     trainer.train()
