@@ -1,4 +1,7 @@
-from src.data.dataset import get_dataloader
+import torch
+from torch.utils.data import DataLoader
+
+from src.data.dataset import BBox3DDataset, get_dataloader
 from src.data.splits import get_splits
 from src.models.boxestimator import BoxEstimationNet
 from src.training.losses import LossLambda
@@ -29,6 +32,17 @@ def parse_args():
         "--num_points", type=int, default=1024, help="Number of points per point cloud"
     )
 
+    # anchor clustering parameters
+    parser.add_argument(
+        "--num_clusters", type=int, default=8, help="Number of K-means anchor clusters"
+    )
+    parser.add_argument(
+        "--kmeans_path",
+        type=str,
+        default="kmeans_centers.npy",
+        help="Path to save/load K-means cluster centers",
+    )
+
     return parser.parse_args()
 
 
@@ -39,20 +53,30 @@ def main():
     BATCH_SZ = args.batch_size
     FRAME = args.frame
     N = args.num_points
-
+    K = args.num_clusters
     NUM_WORKERS = 2
 
-    # prepare dataloaders
     split_paths = get_splits(data_dir="dataset")
 
-    trainloader = get_dataloader(
+    # --- Fit K-means on training data ---
+    print("Fitting K-means on training data...")
+    train_ds = BBox3DDataset(
         split_paths["train"],
         augment=True,
-        shuffle=True,
-        batch_size=BATCH_SZ,
-        num_workers=NUM_WORKERS,
-        canonical_frame=FRAME,
         N=N,
+        canonical_frame=FRAME,
+    )
+    centers = train_ds.fit_kmeans(k=K)
+    train_ds.save_kmeans(args.kmeans_path)
+    print(f"K-means centers saved to '{args.kmeans_path}'  shape={centers.shape}")
+
+    trainloader = DataLoader(
+        train_ds,
+        batch_size=BATCH_SZ,
+        shuffle=True,
+        num_workers=NUM_WORKERS,
+        pin_memory=True,
+        drop_last=True,
     )
 
     valloader = get_dataloader(
@@ -63,6 +87,7 @@ def main():
         num_workers=NUM_WORKERS,
         canonical_frame=FRAME,
         N=N,
+        kmeans_centers=centers,
     )
 
     testloader = get_dataloader(
@@ -73,33 +98,37 @@ def main():
         num_workers=NUM_WORKERS,
         canonical_frame=FRAME,
         N=N,
+        kmeans_centers=centers,
     )
 
     # loss weighing
-    loss_lambda = LossLambda(corner=2, lwh=0.5, rot=5, tr=1)
+    loss_lambda = LossLambda(cluster=1.0, residual=0.5, rot=5, tr=1, corner=2)
 
     # model
-    model = BoxEstimationNet(in_channels=6)
+    model = BoxEstimationNet(in_channels=6, num_clusters=K)
 
     # count params
     total_params = sum(p.numel() for p in model.parameters())
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
     print(f"Model parameters: total={total_params:,} trainable={trainable_params:,}")
-    print(f"Training config: epochs={EPOCHS} batch_size={BATCH_SZ} frame={FRAME} N={N}")
+    print(f"Training config: epochs={EPOCHS} batch_size={BATCH_SZ} frame={FRAME} N={N} K={K}")
     print(
         f"Data sizes: train={len(trainloader.dataset)} val={len(valloader.dataset)} test={len(testloader.dataset)}"
     )
 
     # training
     print("\n=== STARTING TRAINING ===")
-    run_name = f"train_N{N}_frame{FRAME}_ep{EPOCHS}_btc{BATCH_SZ}"
-    ckpt_dir = f"ckpt_N{N}_F{FRAME}_EP{EPOCHS}_B{BATCH_SZ}"
+    run_name = f"train_N{N}_frame{FRAME}_ep{EPOCHS}_btc{BATCH_SZ}_K{K}"
+    ckpt_dir = f"ckpt_N{N}_F{FRAME}_EP{EPOCHS}_B{BATCH_SZ}_K{K}"
+
+    kmeans_tensor = torch.from_numpy(centers).float()
     trainer = Trainer(
         model,
         trainloader,
         valloader,
         loss_lambda,
+        kmeans_centers=kmeans_tensor,
         epochs=EPOCHS,
         run_name=run_name,
         ckpt_dir=ckpt_dir,
