@@ -61,7 +61,7 @@ class BoxEstimationNet(nn.Module):
             nn.Linear(16, 6),
         )
 
-        # cluster classification head — predicts which anchor size bin
+        # cluster classification head 
         self.head_cluster = nn.Sequential(
             nn.Linear(64, 32),
             nn.BatchNorm1d(32),
@@ -76,7 +76,7 @@ class BoxEstimationNet(nn.Module):
             nn.Linear(16, num_clusters),  # raw logits, no softmax
         )
 
-        # residual regression head — predicts LWH offset from cluster center
+        # residual regression head 
         self.head_residual = nn.Sequential(
             nn.Linear(64, 32),
             nn.BatchNorm1d(32),
