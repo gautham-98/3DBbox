@@ -13,22 +13,18 @@ class BoxEstimationNet(nn.Module):
             nn.Conv1d(in_channels, 64, 1),
             nn.BatchNorm1d(64),
             nn.ReLU(),
-            nn.Dropout(dropout),
 
             nn.Conv1d(64, 128, 1),
             nn.BatchNorm1d(128),
             nn.ReLU(),
-            nn.Dropout(dropout),
 
             nn.Conv1d(128, 256, 1),
             nn.BatchNorm1d(256),
             nn.ReLU(),
-            nn.Dropout(dropout),
 
             nn.Conv1d(256, 512, 1),
             nn.BatchNorm1d(512),
             nn.ReLU(),
-            nn.Dropout(dropout),
         )
 
         # fully connected
