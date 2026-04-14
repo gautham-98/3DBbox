@@ -5,8 +5,12 @@ from typing import TypedDict
 def loss_tr(pred_tr, gt_tr, beta=0.1):
     return F.smooth_l1_loss(pred_tr, gt_tr, beta=beta)
 
-def loss_cluster(pred_logits, gt_cluster_id):
-    return F.cross_entropy(pred_logits, gt_cluster_id)
+def loss_cluster(pred_logits, gt_cluster_id, alpha=0.25, gamma=2.0):
+    """focal loss to handle hard cases"""
+    ce = F.cross_entropy(pred_logits, gt_cluster_id, reduction='none')
+    p = torch.exp(-ce)
+    focal_loss = alpha * ((1 - p) ** gamma) * ce
+    return focal_loss.mean()
 
 def loss_residual(pred_residual, gt_residual, beta=0.1):
     return F.smooth_l1_loss(pred_residual, gt_residual, beta=beta)
