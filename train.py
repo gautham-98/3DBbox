@@ -102,7 +102,7 @@ def main():
     )
 
     # loss weighing
-    loss_lambda = LossLambda(cluster=1.0, residual=0.5, rot=5, tr=1, corner=2)
+    loss_lambda = LossLambda(cluster=1.0, residual=1.0, rot=2.0, tr=1.0, corner=2.0)
 
     # model
     model = BoxEstimationNet(in_channels=6, num_clusters=K)
