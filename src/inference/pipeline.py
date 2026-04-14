@@ -17,6 +17,7 @@ class BoxPredictor:
     def __init__(
         self,
         model: BoxEstimationNet,
+        kmeans_centers: np.ndarray,
         num_points: int = 1024,
         canonical_frame="pca",
         batch_sz=4,
@@ -24,6 +25,7 @@ class BoxPredictor:
     ):
         self.device = torch.device(device)
         self.model = model.eval().to(self.device)
+        self.kmeans_centers = torch.from_numpy(kmeans_centers).float().to(self.device)  # (K, 3)
         self.num_points = num_points
         self.frame = canonical_frame
         self.batch_sz = batch_sz
@@ -53,9 +55,10 @@ class BoxPredictor:
                     "in_channels for the model is expected to be either 3 or 6"
                 )
 
-            delta_lwh, pred_6d, pred_tr = self.model(pc)
+            cluster_logits, pred_6d, pred_tr, pred_residual = self.model(pc)
             pred_rot = rot6d_to_rotmat(pred_6d)
-            pred_lwh = batch["prop_lwh"] * (1 + delta_lwh)
+            cluster_probs = cluster_logits.softmax(dim=1)                            # (B, K)
+            pred_lwh = cluster_probs @ self.kmeans_centers + pred_residual           # (B, 3)
 
             bboxes_proposal: torch.Tensor = (
                 BBOX3D_CORNERS[None, ...]
@@ -204,11 +207,12 @@ if __name__ == "__main__":
     IN_CHANNELS = 6
     DEVICE = "cpu"
 
-    model = BoxEstimationNet(in_channels=IN_CHANNELS)
-    ckpt = torch.load(CHECKPOINT, map_location=DEVICE)
+    ckpt = torch.load(CHECKPOINT, map_location=DEVICE, weights_only=False)
+    kmeans_centers = ckpt["kmeans_centers"]  # (K, 3) numpy
+    model = BoxEstimationNet(in_channels=IN_CHANNELS, num_clusters=kmeans_centers.shape[0])
     model.load_state_dict(ckpt["model_state_dict"])
 
-    predictor = BoxPredictor(model=model, device=DEVICE)
+    predictor = BoxPredictor(model=model, kmeans_centers=kmeans_centers, device=DEVICE)
     results = predictor(PC_PATH, RGB_PATH, MASK_PATH)
     print(f"{len(results)} boxes predicted")
     gt_corners = np.load(BOX_PATH)
