@@ -87,10 +87,7 @@ class BBox3DDataset(Dataset):
                 if np.load(cpath, allow_pickle=False)["valid"]:
                     self.items.append((sp, i, self.canonical_frame))
 
-    # ------------------------------------------------------------------
     # K-means anchor clustering
-    # ------------------------------------------------------------------
-
     def fit_kmeans(self, k: int) -> np.ndarray:
         """Fit K-means on gt_lwh of all cached items (training split only).
 
@@ -115,7 +112,6 @@ class BBox3DDataset(Dataset):
         """Load cluster centers from a .npy file."""
         self.kmeans_centers = np.load(path).astype(np.float32)
 
-    # ------------------------------------------------------------------
 
     def __len__(self) -> int:
         return len(self.items)
