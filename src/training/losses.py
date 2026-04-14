@@ -9,7 +9,7 @@ def loss_tr(pred_tr, gt_tr, beta=0.1):
     return F.smooth_l1_loss(pred_tr, gt_tr, beta=beta)
 
 
-def loss_cluster(pred_logits, gt_cluster_id, alpha=0.25, gamma=2.0):
+def loss_cluster(pred_logits, gt_cluster_id, gamma=2.0, alpha=0.25):
     """focal loss to handle hard cases"""
     ce = F.cross_entropy(pred_logits, gt_cluster_id, reduction="none")
     p = torch.exp(-ce)
@@ -21,7 +21,7 @@ def loss_residual(pred_residual, gt_residual, beta=0.1):
     return F.smooth_l1_loss(pred_residual, gt_residual, beta=beta)
 
 
-def loss_rot(pred_rot, gt_rot, gamma=1.5):
+def loss_rot(pred_rot, gt_rot):
     # get error
     err_R = pred_rot.transpose(-2, -1) @ gt_rot  # (B, 3, 3)
     trace = torch.diagonal(err_R, dim1=-2, dim2=-1).sum(-1)  # (B,)
@@ -29,11 +29,8 @@ def loss_rot(pred_rot, gt_rot, gamma=1.5):
     # find cos angle and clamp
     cos_angle = ((trace - 1) / 2).clamp(-1 + 1e-6, 1 - 1e-6)
     angle = torch.acos(cos_angle)
-
-    # find cosine score per element 0.5*(1-cos_angle) maps (0,180) -> (0,1)
-    weight = (0.5 * (1 - cos_angle.detach())) ** gamma
-
-    return (angle * weight).mean()
+    weight = (angle.detach()/angle.detach().mean())
+    return (weight*angle).mean()
 
 
 def loss_corners(pred_corners, gt_corners):
