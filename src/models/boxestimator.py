@@ -24,10 +24,20 @@ class BoxEstimationNet(nn.Module):
             nn.BatchNorm1d(256),
             nn.ReLU(),
             nn.Dropout(dropout),
+
+            nn.Conv1d(256, 512, 1),
+            nn.BatchNorm1d(512),
+            nn.ReLU(),
+            nn.Dropout(dropout),
         )
 
         # fully connected
         self.fc = nn.Sequential(
+            nn.Linear(512, 256),
+            nn.BatchNorm1d(256),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+
             nn.Linear(256, 128),
             nn.BatchNorm1d(128),
             nn.ReLU(),
