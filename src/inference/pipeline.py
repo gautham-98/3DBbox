@@ -9,6 +9,8 @@ from src.data.preprocess import (
     create_o3d_pcd,
 )
 from src.models.boxestimator import BoxEstimationNet
+from src.models.boxestimator_utonia import BoxEstimationNetUtonia
+
 from src.utils.box_utils import reconstruct_bbox, BBOX3D_CORNERS
 from src.utils.rot_utils import rot6d_to_rotmat
 
@@ -16,7 +18,7 @@ from src.utils.rot_utils import rot6d_to_rotmat
 class BoxPredictor:
     def __init__(
         self,
-        model: BoxEstimationNet,
+        model: BoxEstimationNet|BoxEstimationNetUtonia,
         kmeans_centers: np.ndarray,
         num_points: int = 1024,
         canonical_frame="pca",
