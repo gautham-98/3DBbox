@@ -63,6 +63,15 @@ class Trainer:
         training_step = 0
         best_iou = 0
         for epoch in tqdm(range(self.epochs), desc="epochs", position=0):
+            # set progress to schedule lambdas
+            self.loss_lambda.set_progress(epoch/self.epochs)
+
+            # log losses            
+            lambda_dict = dict(epoch=epoch)
+            for key in ["corner", "cluster", "residual", "rot", "tr"]:
+                lambda_dict[key] = self.loss_lambda[key]
+            wandb.init(lambda_dict)
+
             # Training
             self.model.train()
 
