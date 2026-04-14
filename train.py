@@ -58,7 +58,7 @@ def main():
 
     split_paths = get_splits(data_dir="dataset")
 
-    # --- Fit K-means on training data ---
+    # Fit K-means on training data
     print("Fitting K-means on training data...")
     train_ds = BBox3DDataset(
         split_paths["train"],

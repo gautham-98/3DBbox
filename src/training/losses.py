@@ -2,8 +2,8 @@ import torch
 import torch.nn.functional as F
 from typing import TypedDict
 
-def loss_tr(pred_tr, gt_tr):
-    return F.smooth_l1_loss(pred_tr, gt_tr)
+def loss_tr(pred_tr, gt_tr, beta=0.1):
+    return F.smooth_l1_loss(pred_tr, gt_tr, beta=beta)
 
 def loss_cluster(pred_logits, gt_cluster_id):
     return F.cross_entropy(pred_logits, gt_cluster_id)
