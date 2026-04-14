@@ -141,7 +141,7 @@ class BBox3DDataset(Dataset):
         centers = torch.from_numpy(self.kmeans_centers)  # (K, 3)
         dists = ((centers - gt_lwh.unsqueeze(0)) ** 2).sum(-1)  # (K,)
         cluster_id = dists.argmin().long()  # scalar int64
-        residual = gt_lwh - centers[cluster_id]  # (3,) absolute residual
+        residual = gt_lwh / centers[cluster_id] - 1  # (3,) relative residual
 
         return dict(
             points=pts,                           # (N, 3)

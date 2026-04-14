@@ -70,7 +70,7 @@ class Trainer:
             lambda_dict = dict(epoch=epoch)
             for key in ["corner", "cluster", "residual", "rot", "tr"]:
                 lambda_dict[key] = self.loss_lambda[key]
-            wandb.init(lambda_dict)
+            wandb.log(lambda_dict)
 
             # Training
             self.model.train()
@@ -196,12 +196,12 @@ class Trainer:
         pred_rot = rot6d_to_rotmat(pred_6d)
 
         # Reconstruct pred_lwh using soft (differentiable) cluster center weighted sum
-        cluster_probs    = cluster_logits.softmax(dim=1)               # (B, K)
-        pred_lwh_cluster = cluster_probs @ self.kmeans_centers         # (B, 3)
-        pred_lwh         = pred_lwh_cluster + pred_residual            # (B, 3)
+        cluster_probs    = cluster_logits.softmax(dim=1)                        # (B, K)
+        pred_lwh_cluster = cluster_probs @ self.kmeans_centers                  # (B, 3)
+        pred_lwh         = pred_lwh_cluster * (1 + pred_residual)               # (B, 3)
 
-        # GT lwh from cluster center + residual (for corner loss)
-        gt_lwh = self.kmeans_centers[gt_cluster_id] + gt_residual      # (B, 3)
+        # GT lwh from cluster center * (1 + relative residual) (for corner loss)
+        gt_lwh = self.kmeans_centers[gt_cluster_id] * (1 + gt_residual)        # (B, 3)
 
         pred_corners = reconstruct_bbox(pred_lwh, pred_rot, pred_tr)
         gt_corners   = reconstruct_bbox(gt_lwh, gt_rot, gt_tr)

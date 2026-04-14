@@ -53,8 +53,8 @@ class Evaluator:
                 pred_rot = rot6d_to_rotmat(pred_6d)
 
                 cluster_probs = cluster_logits.softmax(dim=1)                        # (B, K)
-                pred_lwh      = cluster_probs @ self.kmeans_centers + pred_residual  # (B, 3)
-                gt_lwh        = self.kmeans_centers[gt_cluster_id] + gt_residual     # (B, 3)
+                pred_lwh = cluster_probs @ self.kmeans_centers * (1 + pred_residual)       # (B, 3)
+                gt_lwh   = self.kmeans_centers[gt_cluster_id]  * (1 + gt_residual)        # (B, 3)
 
                 pred_corners = reconstruct_bbox(pred_lwh, pred_rot, pred_tr)
                 gt_corners   = reconstruct_bbox(gt_lwh, gt_rot, gt_tr)

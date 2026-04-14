@@ -58,7 +58,7 @@ class BoxPredictor:
             cluster_logits, pred_6d, pred_tr, pred_residual = self.model(pc)
             pred_rot = rot6d_to_rotmat(pred_6d)
             cluster_probs = cluster_logits.softmax(dim=1)                            # (B, K)
-            pred_lwh = cluster_probs @ self.kmeans_centers + pred_residual           # (B, 3)
+            pred_lwh = cluster_probs @ self.kmeans_centers * (1 + pred_residual)     # (B, 3)
 
             bboxes_proposal: torch.Tensor = (
                 BBOX3D_CORNERS[None, ...]
