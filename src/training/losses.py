@@ -47,7 +47,7 @@ class LossLambda:
     tr: float = None
     corner: float = None
 
-    schedule: List[float] = field(default_factory=lambda: [0.2, 0.5, 0.8])
+    schedule: List[float] = field(default_factory=lambda: [0.2, 0.3, 0.5])
     schedule_weight: List[float] = field(default_factory=lambda: [0.1, 0.5, 1.0])
     schedule_lambda: List[str] = field(default_factory=lambda: ["residual", "corner"])
 
