@@ -91,6 +91,12 @@ class BoxEstimationNet(nn.Module):
             nn.Linear(16, 3),
         )
 
+        nn.init.zeros_(self.head_rotation[-1].weight)
+        self.head_rotation[-1].bias.data = torch.tensor([1., 0., 0., 0., 1., 0.])
+
+        nn.init.zeros_(self.head_translation.weight)
+        nn.init.zeros_(self.head_translation.bias)
+
     def forward(self, pc: torch.Tensor):
         x = pc.transpose(1, 2)   # (B, C, N)
         x = self.point_mlp(x)
