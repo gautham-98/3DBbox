@@ -5,8 +5,8 @@ from dataclasses import dataclass, field
 from typing import List
 
 
-def loss_tr(pred_tr, gt_tr, beta=0.1):
-    return F.smooth_l1_loss(pred_tr, gt_tr, beta=beta)
+def loss_tr(pred_tr, gt_tr):
+    return F.l1_loss(pred_tr, gt_tr)
 
 
 def loss_cluster(pred_logits, gt_cluster_id, gamma=2.0, alpha=0.25):
@@ -22,15 +22,11 @@ def loss_residual(pred_residual, gt_residual, beta=0.1):
 
 
 def loss_rot(pred_rot, gt_rot):
-    # get error
-    err_R = pred_rot.transpose(-2, -1) @ gt_rot  # (B, 3, 3)
-    trace = torch.diagonal(err_R, dim1=-2, dim2=-1).sum(-1)  # (B,)
-
-    # find cos angle and clamp
+    err_R = pred_rot.transpose(-2, -1) @ gt_rot
+    trace = torch.diagonal(err_R, dim1=-2, dim2=-1).sum(-1)
     cos_angle = ((trace - 1) / 2).clamp(-1 + 1e-6, 1 - 1e-6)
     angle = torch.acos(cos_angle)
-    weight = (angle.detach()/angle.detach().mean())
-    return (weight*angle).mean()
+    return angle.mean()
 
 
 def loss_corners(pred_corners, gt_corners):
