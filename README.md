@@ -70,6 +70,7 @@ total_loss = l_cluster*L_cluster + l_tr*L_tr + l_rot*L_rot
 3DBbox/
 ├── train.py                        # training + evaluation entry point
 ├── inference.py                    # standalone inference script
+├── requirements.txt
 ├── environment.yml                 # conda environment
 ├── src/
 │   ├── data/
@@ -90,9 +91,6 @@ total_loss = l_cluster*L_cluster + l_tr*L_tr + l_rot*L_rot
 │   └── utils/
 │       ├── box_utils.py            # reconstruct_bbox(), unit-cube corner template
 │       └── rot_utils.py           # rot6d_to_rotmat(), rotmat_to_rot6d()
-├── visualize_bboxes.py             # render predicted/GT boxes over point cloud
-├── visualize_clusters.py           # visualise K-means LWH anchor boxes
-└── visualize_utonia_features.py    # debug Utonia per-point feature maps
 ```
 
 ---
