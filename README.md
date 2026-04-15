@@ -2,7 +2,7 @@
 
 Anchor-based method for predicting 3D bounding boxes given an instance segmentation mask, RGB image and point cloud. Achieves a 3D IoU of 40.5% and a mean corner distance of 26.8cm.
 
-Inspired by [Frustum PointNets for 3D Object Detection from RGB-D Data](https://arxiv.org/abs/1711.08488).
+Inspired by [Frustum PointNets for 3D Object Detection from RGB-D Data](https://arxiv.org/abs/1711.08488). They only estimate a single heading angle in the paper which is suitable for datasets with a given gravity direction, but in bin picking, since the objects can be oriented in any direction we have to solve for all the 3 DoFs of rotation.
 
 ---
 
