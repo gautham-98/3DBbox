@@ -1,4 +1,4 @@
-# 3D Bounding Box Estimation from RGB-D Data
+# 3D Bounding Box Estimation
 
 Anchor-based method for predicting 3D bounding boxes given an instance segmentation mask, RGB image and point cloud. Achieves a 3D IoU of 40.5% and a mean corner distance of 26.8cm.
 
