@@ -47,9 +47,15 @@ def parse_args():
         "--model",
         type=str,
         default="pointnet",
-        help="Model name 'utonia' or 'pointnet'"
-
+        help="Model name 'utonia' or 'pointnet'",
     )
+    parser.add_argument(
+        "--suffix",
+        type=str,
+        default="",
+        help="suffix to add to run_name (optional)",
+    )
+
 
     return parser.parse_args()
 
@@ -63,6 +69,7 @@ def main():
     N = args.num_points
     K = args.num_clusters
     MODEL = args.model
+    NAME_SUFFIX = args.suffix
     NUM_WORKERS = 2
 
     split_paths = get_splits(data_dir="dataset")
@@ -111,7 +118,16 @@ def main():
     )
 
     # loss weighing
-    loss_lambda = LossLambda(cluster=1.0, residual=1.0, rot=2.0, tr=1.0, corner=2.0)
+    loss_lambda = LossLambda(
+        cluster=1.0,
+        residual=1.0,
+        rot=1.0,
+        tr=1.0,
+        corner=10.0,
+        # schedule=[0.2,0.1,0.2,0.50],
+        # schedule_weight=[0.001,0.1,0.5,1.0],
+        # schedule_lambda=["rot", "tr", "corner"]
+    )
 
     # model
     if MODEL == "pointnet":
@@ -120,21 +136,27 @@ def main():
         model = BoxEstimationNetUtonia(flash_attn=False, num_clusters=K)
     else:
         raise ValueError("Choose either 'utonia' or 'pointnet'")
-    
+
     # count params
     total_params = sum(p.numel() for p in model.parameters())
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
     print(f"Model parameters: total={total_params:,} trainable={trainable_params:,}")
-    print(f"Training config: epochs={EPOCHS} batch_size={BATCH_SZ} frame={FRAME} N={N} K={K}")
+    print(
+        f"Training config: epochs={EPOCHS} batch_size={BATCH_SZ} frame={FRAME} N={N} K={K}"
+    )
     print(
         f"Data sizes: train={len(trainloader.dataset)} val={len(valloader.dataset)} test={len(testloader.dataset)}"
     )
 
     # training
     print("\n=== STARTING TRAINING ===")
-    run_name = f"train_N{N}_M{MODEL}_F{FRAME}_EP{EPOCHS}_B{BATCH_SZ}_K{K}"
-    ckpt_dir = f"ckpt_N{N}_M{MODEL}_F{FRAME}_EP{EPOCHS}_B{BATCH_SZ}_K{K}"
+    run_name = (
+        f"train_N{N}_M{MODEL}_F{FRAME}_EP{EPOCHS}_B{BATCH_SZ}_K{K}" + NAME_SUFFIX
+    )
+    ckpt_dir = (
+        f"ckpt_N{N}_M{MODEL}_F{FRAME}_EP{EPOCHS}_B{BATCH_SZ}_K{K}" + NAME_SUFFIX
+    )
 
     kmeans_tensor = torch.from_numpy(centers).float()
     trainer = Trainer(
