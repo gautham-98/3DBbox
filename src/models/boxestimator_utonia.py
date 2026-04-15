@@ -5,7 +5,7 @@ import utonia
 from utonia.structure import Point
 
 
-UTONIA_FEAT_DIM = 1224  # observed from forward pass (419, 1224)
+UTONIA_FEAT_DIM = 1224  
 
 
 def _load_utonia(flash: bool = False) -> nn.Module:
@@ -37,7 +37,7 @@ class BoxEstimationNetUtonia(nn.Module):
     def __init__(
         self,
         num_clusters: int = 8,
-        dropout: float = 0.1,
+        dropout: float = 0.3,
         flash_attn: bool = False,
         upcast_levels: int = 2,
     ):
@@ -97,6 +97,11 @@ class BoxEstimationNetUtonia(nn.Module):
             nn.Linear(8, 3),
         )
 
+        nn.init.zeros_(self.head_rotation[-1].weight)
+        self.head_rotation[-1].bias.data = torch.tensor([1., 0., 0., 0., 1., 0.])
+
+        nn.init.zeros_(self.head_translation.weight)
+        nn.init.zeros_(self.head_translation.bias)
 
     def _to_point(self, pc: torch.Tensor) -> Point:
         B, N, _ = pc.shape
