@@ -41,6 +41,11 @@ pred_lwh = softmax(cluster_logits) @ kmeans_centers (LWH) * (1 + pred_residual (
 
 The model predicts a class for the anchor which gives the `LWH` and then the residuals from this is predicted separately.
 
+Considerations - 
+- The translation head output weights and biases are initialised to zeros, since we expect the translation to be near 0 after canonicalisation.
+- The rotation head output weights are initialised to identity [1,0,0,0,1,0] since the rotation is expected to be near 0 in the ideal case after canonicalisation.
+- These assumptions help reduce the number of training epochs required to start the training from random initialisation and we can reduce the number of epochs by nearly 100. This is because the training now is not disturbed by large gradients from random initialisations anymore. 
+
 ### 3. 6D Rotation Representation
 
 Rotations are encoded as the first two columns of a rotation matrix (6 scalars). The full `SO(3)` matrix is recovered at inference via orthonormalisation (`src/utils/rot_utils.py`).
