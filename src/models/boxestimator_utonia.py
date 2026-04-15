@@ -1,11 +1,16 @@
 import torch
 import torch.nn as nn
 
-import utonia
-from utonia.structure import Point
+try:
+    import utonia
+    from utonia.structure import Point
+    UTONIA_AVAILABLE = True
+except ImportError:
+    UTONIA_AVAILABLE = False
+    Point = None
 
 
-UTONIA_FEAT_DIM = 1224  
+UTONIA_FEAT_DIM = 1224
 
 
 def _load_utonia(flash: bool = False) -> nn.Module:
@@ -41,6 +46,10 @@ class BoxEstimationNetUtonia(nn.Module):
         flash_attn: bool = False,
         upcast_levels: int = 2,
     ):
+        if not UTONIA_AVAILABLE:
+            raise ImportError(
+                "The 'utonia' package is not installed. "
+            )
         super().__init__()
         self.in_channels   = 6
         self.num_clusters  = num_clusters
