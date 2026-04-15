@@ -259,6 +259,6 @@ Green boxes are predicted, blue boxes are GT.
   <img src="fig/utonia.png" width="400"/>
 
 
-- Explore architecture changes that could help improve on the rotation error. The problem with learning rotation is fundamental and was seen with multiple architectural changes and loss representations. This has to be explored more. 
+- Explore architecture changes that could help improve on the rotation error. The problem with learning rotation is fundamental and was seen with multiple architectural changes and loss representations. This has to be explored more, perhaps with reference to 6D pose estimation libraries.
 
 
