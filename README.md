@@ -253,12 +253,12 @@ Green boxes are predicted, blue boxes are GT.
 
 - ONNX / TensorRT export for deployment. This should be rather easy for the proposed network that does not contain any special operations. 
 
-
 - [Utonia](https://github.com/Pointcept/Utonia) based architecture (`src/models/boxestimator_utonia.py`): Utonia is a point cloud foundation model pre-trained on large-scale 3D data. The backbone produces rich 1224-d per-point features which is especially useful in low-data conditions where a small dataset alone cannot teach such representations. The PCA-compressed features visualised as RGB below show that Utonia has a good semantic understanding of objects which can be used for downstream tasks. I performed some initial tests with unoptimized hyperparameters with a result of ~40% IoU but since the training time is much longer I have not yet tested the model much.
 
   <img src="fig/utonia.png" width="400"/>
 
-
 - Explore architecture changes that could help improve on the rotation error. The problem with learning rotation is fundamental and was seen with multiple architectural changes and loss representations. This has to be explored more, perhaps with reference to 6D pose estimation libraries.
+
+- Try using Pointnet++ instead of pointnet for more local features, this might also help with rotation compared to the max-pooled global feature vector of Pointnet.
 
 
