@@ -4,6 +4,7 @@ from torch.utils.data import DataLoader
 from src.data.dataset import BBox3DDataset, get_dataloader
 from src.data.splits import get_splits
 from src.models.boxestimator import BoxEstimationNet
+from src.models.boxestimator_residual import BoxEstimationResNet
 from src.models.boxestimator_utonia import BoxEstimationNetUtonia
 from src.training.losses import LossLambda
 from src.training.trainer import Trainer
@@ -47,7 +48,7 @@ def parse_args():
         "--model",
         type=str,
         default="pointnet",
-        help="Model name 'utonia' or 'pointnet'",
+        help="Model name: 'pointnet', 'residual', or 'utonia'",
     )
     parser.add_argument(
         "--suffix",
@@ -132,10 +133,12 @@ def main():
     # model
     if MODEL == "pointnet":
         model = BoxEstimationNet(in_channels=6, num_clusters=K)
+    elif MODEL == "residual":
+        model = BoxEstimationResNet(in_channels=6, num_clusters=K)
     elif MODEL == "utonia":
         model = BoxEstimationNetUtonia(flash_attn=False, num_clusters=K)
     else:
-        raise ValueError("Choose either 'utonia' or 'pointnet'")
+        raise ValueError("Choose 'pointnet', 'residual', or 'utonia'")
 
     # count params
     total_params = sum(p.numel() for p in model.parameters())
