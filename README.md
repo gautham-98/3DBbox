@@ -4,6 +4,14 @@ Anchor-based method for predicting 3D bounding boxes given an instance segmentat
 
 Inspired by [Frustum PointNets for 3D Object Detection from RGB-D Data](https://arxiv.org/abs/1711.08488). They only estimate a single heading angle in the paper which is suitable for datasets with a given gravity direction, but in bin picking, since the objects can be oriented in any direction we have to solve for all the 3 DoFs of rotation.
 
+### Inference results
+
+Green boxes are predicted, blue boxes are GT.
+
+| | |
+|---|---|
+| ![](fig/result1/result1.png) | ![](fig/result1/result2.png) |
+
 ---
 
 ## Pipeline Overview
@@ -238,14 +246,6 @@ predictor.visualise_result(np.load("scene/bbox3d.npy"))
 It can be seen that almost all the losses go down, except for the rotation loss it remains at ~0.30, which is the average geodesic rotiation error of objects in canonical frame. This shows that the model is not capable of learning rotation easily. 
 
 To counter this geodesic loss, was replaced with  L2 loss and L1 loss directly on the 6D rotation vector but the loss did not improve. I believe this to be a primary reason for the low IoU.
-
-### Inference results
-
-Green boxes are predicted, blue boxes are GT.
-
-| | |
-|---|---|
-| ![](fig/result1/result1.png) | ![](fig/result1/result2.png) |
 
 ---
 
